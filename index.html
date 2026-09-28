@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Аналізатор лотів</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#faf9f6; --surface:#ffffff; --ink:#1e2a38; --muted:#6b7280;
+    --accent:#a8722f; --accent-dim:#f1e6d6; --line:#e4e1d8;
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161a20; --surface:#1e242c; --ink:#e8e6df; --muted:#9aa1ab;
+      --accent:#d0964f; --accent-dim:#2e2620; --line:#333a44;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-padding-top:env(safe-area-inset-top,0px)}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+    line-height:1.5;
+  }
+  h1,h2{font-family:'Newsreader',Georgia,serif; font-weight:600; margin:0}
+  .wrap{max-width:720px; margin:0 auto; padding:32px 20px 80px}
+  header{margin-bottom:32px}
+  header h1{font-size:28px; color:var(--ink)}
+  header p{color:var(--muted); margin:6px 0 0; font-size:14px}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:22px; margin-bottom:20px}
+  label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+  textarea, input[type=text]{
+    width:100%; font-family:inherit; font-size:14px; color:var(--ink);
+    background:transparent; border:1px solid var(--line); border-radius:6px;
+    padding:10px 12px; resize:vertical;
+  }
+  textarea:focus, input:focus{outline:none; border-color:var(--accent)}
+  .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px}
+  button{
+    font-family:inherit; font-size:14px; font-weight:500; cursor:pointer;
+    border-radius:6px; padding:10px 18px; border:1px solid transparent;
+  }
+  .btn-primary{background:var(--accent); color:#fff}
+  .btn-primary:disabled{opacity:.5; cursor:default}
+  .btn-ghost{background:transparent; color:var(--ink); border-color:var(--line)}
+  .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5}
+  .analysis{white-space:pre-wrap; font-size:14.5px; line-height:1.65}
+  .analysis strong{color:var(--accent)}
+  .divider{border:none; border-top:1px solid var(--line); margin:22px 0}
+  .chat-log{display:flex; flex-direction:column; gap:14px; margin-bottom:16px}
+  .msg{padding:10px 14px; border-radius:8px; font-size:14px; max-width:88%}
+  .msg.user{align-self:flex-end; background:var(--accent-dim); color:var(--ink)}
+  .msg.assistant{align-self:flex-start; background:var(--bg); border:1px solid var(--line); white-space:pre-wrap}
+  .status{font-size:13px; color:var(--muted); font-style:italic}
+  a{color:var(--accent)}
+  .lot-link{font-size:13px; margin-top:6px; display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Аналізатор лотів</h1>
+    <p>Структурований аналіз лота з торгів + консультант по участі в аукціоні</p>
+  </header>
+
+  <section class="card" id="settings-card">
+    <label for="api-key">Anthropic API ключ (зберігається лише у вашому браузері)</label>
+    <input type="text" id="api-key" placeholder="sk-ant-...">
+    <p class="hint">Потрібен для роботи цієї, локальної версії інструменту. Отримати можна на console.anthropic.com.</p>
+  </section>
+
+  <section class="card" id="input-card">
+    <label for="lot-id">ID / номер лота або посилання (спроба автопідключення до API Prozorro.Sale)</label>
+    <input type="text" id="lot-id" placeholder="напр. UA-LR-DGF-2024-... або повне посилання">
+    <div class="row"><button class="btn-ghost" id="fetch-btn">Спробувати отримати дані автоматично</button></div>
+    <div id="fetch-status" class="hint"></div>
+    <hr class="divider">
+    <label for="lot-text">Опис лота (якщо автопідключення не спрацювало — вставте текст зі сторінки лота вручну)</label>
+    <textarea id="lot-text" rows="8" placeholder="Вставте сюди текст з картки лота..."></textarea>
+    <div class="row">
+      <button class="btn-primary" id="analyze-btn">Аналізувати</button>
+    </div>
+    <p class="hint">Аналіз враховує ваші критерії: лише повний перехід власності, пріоритетні регіони, стан об'єкта та ліквідність.</p>
+  </section>
+
+  <section class="card" id="analysis-card" style="display:none">
+    <h2 style="font-size:18px; margin-bottom:12px">Аналіз</h2>
+    <div id="analysis-status" class="status"></div>
+    <div id="analysis-output" class="analysis"></div>
+    <a id="lot-link-out" class="lot-link" target="_blank" style="display:none"></a>
+  </section>
+
+  <section class="card" id="chat-card" style="display:none">
+    <h2 style="font-size:18px; margin-bottom:12px">Питання щодо цього лота</h2>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="chat-input" placeholder="Напр.: чи варто торгуватись за такою ціною?" style="flex:1">
+      <button class="btn-primary" id="chat-send">Спитати</button>
+    </div>
+  </section>
+</div>
+
+<script>
+const CRITERIA = `Критерії аналізу (застосовуй завжди):
+- ВЛАСНІСТЬ: аналізуй лише лоти з повним переходом права власності (продаж, приватизація, банкрутство). Якщо з тексту зрозуміло, що це оренда чи право користування — одразу напиши про це як застереження на початку і не аналізуй далі як інвестицію у власність.
+- РЕГІОН: пріоритетні — правобережна та західна Україна (Волинська, Рівненська, Житомирська, Львівська, Тернопільська, Івано-Франківська, Чернівецька, Закарпатська, Хмельницька, Вінницька, Київська обл. + м. Київ, Черкаська). Непріоритетні — Кіровоградська, Одеська, Миколаївська, всі лівобережні області. Явно вкажи, до якої категорії належить лот.
+- СТАН: перевагу мають об'єкти в хорошому стані, що використовуються чи нещодавно використовувались. Аварійний/руйнований стан — це стоп-фактор, зазнач одразу. Міста мають пріоритет над селами.
+- ОЦІНКА: не суди про привабливість лише по ціні за м² відносно розміру чи інших лотів — стан, ліквідність і практична придатність важать так само.
+Формат відповіді: короткий заголовок-вердикт, потім розділи "Ключові показники", "Відповідність критеріям" (власність/регіон/стан — явно), "Ліквідність і придатність", "Ризики", і фінальний "Висновок" (варто/не варто заглиблюватись, чому).`;
+
+let chatHistory = [];
+const keyInput = document.getElementById('api-key');
+keyInput.value = localStorage.getItem('anthropicKey') || '';
+keyInput.addEventListener('change', ()=> localStorage.setItem('anthropicKey', keyInput.value.trim()));
+
+function render(el, text){
+  el.innerHTML = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+}
+
+async function callClaude(messages){
+  const key = keyInput.value.trim();
+  if(!key) throw new Error('no-key');
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key': key,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:2000, messages })
+  });
+  if(!resp.ok) throw new Error('api-error-'+resp.status);
+  const data = await resp.json();
+  return (data.content||[]).map(b=>b.text||'').join('\n');
+}
+
+function extractId(raw){
+  const m = raw.match(/[A-Za-z0-9-]{10,}/g);
+  return m ? m[m.length-1] : raw.trim();
+}
+
+document.getElementById('fetch-btn').addEventListener('click', async ()=>{
+  const raw = document.getElementById('lot-id').value.trim();
+  const statusEl = document.getElementById('fetch-status');
+  if(!raw){ statusEl.textContent = 'Вкажіть ID лота або посилання.'; return; }
+  const id = extractId(raw);
+  const endpoints = [
+    `https://procedure.prozorro.sale/api/${id}`,
+    `https://public.api.ea.openprocurement.org/api/2/auctions/${id}`
+  ];
+  for(const ep of endpoints){
+    statusEl.textContent = `Пробую ${ep} ...`;
+    try{
+      const r = await fetch(ep);
+      if(r.ok){
+        const data = await r.json();
+        document.getElementById('lot-text').value = JSON.stringify(data, null, 2);
+        statusEl.textContent = 'Дані отримано автоматично — можна одразу натискати "Аналізувати".';
+        return;
+      }
+    }catch(e){ /* CORS or network error, try next */ }
+  }
+  statusEl.textContent = 'Автопідключення не спрацювало (ймовірно, обмеження CORS на боці Prozorro.Sale). Вставте опис лота вручну нижче.';
+});
+
+document.getElementById('analyze-btn').addEventListener('click', async ()=>{
+  const idRaw = document.getElementById('lot-id').value.trim();
+  const text = document.getElementById('lot-text').value.trim();
+  if(!text){ alert('Вставте текст опису лота — без нього нема що аналізувати.'); return; }
+  if(!keyInput.value.trim()){ alert('Вкажіть Anthropic API ключ вгорі сторінки.'); return; }
+
+  const analysisCard = document.getElementById('analysis-card');
+  const statusEl = document.getElementById('analysis-status');
+  const outputEl = document.getElementById('analysis-output');
+  const linkEl = document.getElementById('lot-link-out');
+  analysisCard.style.display = 'block';
+  statusEl.textContent = 'Аналізую...';
+  outputEl.textContent = '';
+  document.getElementById('analyze-btn').disabled = true;
+
+  if(idRaw && idRaw.startsWith('http')){ linkEl.href = idRaw; linkEl.textContent = 'Відкрити лот на майданчику →'; linkEl.style.display='inline-block'; }
+  else { linkEl.style.display='none'; }
+
+  const lotContext = `Ідентифікатор/посилання: ${idRaw || 'не вказано'}\n\nДані лота:\n${text}`;
+  const prompt = `${CRITERIA}\n\n${lotContext}\n\nДай структурований аналіз цього лота за критеріями вище.`;
+
+  try{
+    const answer = await callClaude([{role:'user', content: prompt}]);
+    statusEl.textContent = '';
+    render(outputEl, answer);
+    chatHistory = [{role:'user', content: prompt}, {role:'assistant', content: answer}];
+    document.getElementById('chat-card').style.display = 'block';
+  }catch(e){
+    statusEl.textContent = '';
+    outputEl.textContent = e.message === 'no-key' ? 'Вкажіть API ключ.' : 'Не вдалося отримати аналіз (перевірте ключ і з\'єднання).';
+  }
+  document.getElementById('analyze-btn').disabled = false;
+});
+
+async function sendChat(){
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if(!q) return;
+  const log = document.getElementById('chat-log');
+  const userDiv = document.createElement('div');
+  userDiv.className = 'msg user'; userDiv.textContent = q;
+  log.appendChild(userDiv); input.value = '';
+  const aDiv = document.createElement('div');
+  aDiv.className = 'msg assistant'; aDiv.textContent = '...';
+  log.appendChild(aDiv); log.scrollTop = log.scrollHeight;
+  chatHistory.push({role:'user', content:q});
+  try{
+    const answer = await callClaude(chatHistory);
+    aDiv.textContent = answer;
+    chatHistory.push({role:'assistant', content: answer});
+  }catch(e){ aDiv.textContent = 'Помилка відповіді. Перевірте ключ і спробуйте ще раз.'; }
+}
+document.getElementById('chat-send').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') sendChat(); });
+</script>
+</body>
+</html>
